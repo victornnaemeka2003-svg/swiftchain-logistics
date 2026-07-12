@@ -1,64 +1,39 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import * as api from '../api/client';
 
-export function useAuth() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+export const useAuth = () => {
+  const [user, setUser] = useState(() => {
+    const stored = localStorage.getItem('user');
+    return stored ? JSON.parse(stored) : null;
+  });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchCurrentUser();
-  }, []);
-
-  const fetchCurrentUser = async () => {
+  const login = useCallback(async (email, password) => {
+    setLoading(true);
+    setError(null);
     try {
-      const response = await fetch('/api/auth/me', {
-        credentials: 'include'
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data);
-      }
-    } catch (err) {
-      console.error('Auth check failed:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const login = async (email, password) => {
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email, password })
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error);
-      }
-
-      const data = await response.json();
-      setUser(data.user);
-      return data.user;
+      const response = await api.post('/auth/login', { email, password });
+      setUser(response.user);
+      localStorage.setItem('user', JSON.stringify(response.user));
+      return response;
     } catch (err) {
       setError(err.message);
       throw err;
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include'
-      });
+      await api.post('/auth/logout', {});
       setUser(null);
+      localStorage.removeItem('user');
     } catch (err) {
-      console.error('Logout failed:', err);
+      console.error('Logout error:', err);
     }
-  };
+  }, []);
 
-  return { user, loading, error, login, logout, fetchCurrentUser };
-}
+  return { user, loading, error, login, logout };
+};

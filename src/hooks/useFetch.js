@@ -1,35 +1,25 @@
 import { useState, useCallback } from 'react';
 
-export function useFetch(url, options = {}) {
+export const useFetch = (url, options = {}) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetch = useCallback(async (fetchOptions = {}) => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await window.fetch(url, {
-        credentials: 'include',
-        ...options,
-        ...fetchOptions
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Request failed');
-      }
-
+      const response = await fetch(`/api${url}`, options);
+      if (!response.ok) throw new Error('Fetch failed');
       const result = await response.json();
       setData(result);
       return result;
     } catch (err) {
-      setError(err.message);
-      throw err;
+      setError(err);
     } finally {
       setLoading(false);
     }
   }, [url, options]);
 
-  return { data, loading, error, fetch };
-}
+  return { data, loading, error, refetch: fetchData };
+};

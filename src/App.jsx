@@ -13,20 +13,26 @@ import FAQ from './pages/public/FAQ';
 import Careers from './pages/public/Careers';
 import PrivacyPolicy from './pages/public/PrivacyPolicy';
 import TermsConditions from './pages/public/TermsConditions';
-
-// Auth Pages
-import Login from './pages/auth/Login';
-import ResetPassword from './pages/auth/ResetPassword';
+import Blog from './pages/public/Blog';
+import BlogDetail from './pages/public/BlogDetail';
 
 // Admin Pages
-import AdminLayout from './components/admin/AdminLayout';
-import Dashboard from './pages/admin/Dashboard';
-import CustomerManagement from './pages/admin/CustomerManagement';
-import ShipmentManagement from './pages/admin/ShipmentManagement';
-import UserManagement from './pages/admin/UserManagement';
-import ReportGeneration from './pages/admin/ReportGeneration';
-import AuditLogs from './pages/admin/AuditLogs';
-import Settings from './pages/admin/Settings';
+import AdminLogin from './pages/admin/Login';
+import AdminDashboard from './pages/admin/Dashboard';
+import AdminCustomers from './pages/admin/Customers';
+import AdminShipments from './pages/admin/Shipments';
+import AdminTracking from './pages/admin/Tracking';
+import AdminDrivers from './pages/admin/Drivers';
+import AdminWarehouses from './pages/admin/Warehouses';
+import AdminInvoices from './pages/admin/Invoices';
+import AdminReports from './pages/admin/Reports';
+import AdminSettings from './pages/admin/Settings';
+import AdminUsers from './pages/admin/Users';
+
+// Layout Components
+import PublicLayout from './components/layout/PublicLayout';
+import AdminLayout from './components/layout/AdminLayout';
+import ProtectedRoute from './components/ProtectedRoute';
 
 import './styles/App.css';
 
@@ -35,10 +41,10 @@ function App() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="flex items-center justify-center h-screen bg-gray-100">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
     );
@@ -48,34 +54,37 @@ function App() {
     <Router>
       <Routes>
         {/* Public Routes */}
-        <Route path="/" element={<Home />} />
-        <Route path="/about" element={<About />} />
-        <Route path="/services" element={<Services />} />
-        <Route path="/track/:trackingNumber" element={<Track />} />
-        <Route path="/track" element={<Track />} />
-        <Route path="/pricing" element={<Pricing />} />
-        <Route path="/contact" element={<Contact />} />
-        <Route path="/faq" element={<FAQ />} />
-        <Route path="/careers" element={<Careers />} />
-        <Route path="/privacy" element={<PrivacyPolicy />} />
-        <Route path="/terms" element={<TermsConditions />} />
-
-        {/* Auth Routes */}
-        <Route path="/login" element={user ? <Navigate to="/admin" /> : <Login />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route element={<PublicLayout />}>
+          <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/services" element={<Services />} />
+          <Route path="/track" element={<Track />} />
+          <Route path="/pricing" element={<Pricing />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/faq" element={<FAQ />} />
+          <Route path="/careers" element={<Careers />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsConditions />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<BlogDetail />} />
+        </Route>
 
         {/* Admin Routes */}
-        {user ? (
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route element={<ProtectedRoute />}>
           <Route element={<AdminLayout />}>
-            <Route path="/admin" element={<Dashboard />} />
-            <Route path="/admin/customers" element={<CustomerManagement />} />
-            <Route path="/admin/shipments" element={<ShipmentManagement />} />
-            <Route path="/admin/users" element={<UserManagement />} />
-            <Route path="/admin/reports" element={<ReportGeneration />} />
-            <Route path="/admin/audit-logs" element={<AuditLogs />} />
-            <Route path="/admin/settings" element={<Settings />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/customers" element={<AdminCustomers />} />
+            <Route path="/admin/shipments" element={<AdminShipments />} />
+            <Route path="/admin/tracking" element={<AdminTracking />} />
+            <Route path="/admin/drivers" element={<AdminDrivers />} />
+            <Route path="/admin/warehouses" element={<AdminWarehouses />} />
+            <Route path="/admin/invoices" element={<AdminInvoices />} />
+            <Route path="/admin/reports" element={<AdminReports />} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
           </Route>
-        ) : null}
+        </Route>
 
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" />} />
