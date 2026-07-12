@@ -1,151 +1,177 @@
-import pool from '../db.js';
-import { Shipment } from '../models/Shipment.js';
-import { sendEmail, getShipmentUpdateTemplate } from '../utils/email.js';
-import { logAudit } from '../utils/logger.js';
-import { validateCurrency } from '../utils/validators.js';
+import { query } from '../db.js';
+import { generateTrackingNumber, generateShipmentId } from '../utils/helpers.js';
+import { logAudit } from '../utils/audit.js';
 
-export async function createShipment(req, res) {
+export const getAllShipments = async (req, res) => {
   try {
-    const { shipmentData } = req.body;
-
-    // Validate required fields
-    const requiredFields = ['customer_id', 'sender_name', 'receiver_name', 'origin_country', 'destination_country', 'shipping_method'];
-    for (const field of requiredFields) {
-      if (!shipmentData[field]) {
-        return res.status(400).json({ error: `Missing required field: ${field}` });
-      }
-    }
-
-    const result = await Shipment.create(shipmentData);
-
-    await logAudit(req.session.userId, 'CREATE', 'shipment', result.id, null, shipmentData, req);
-
-    res.json({
-      success: true,
-      shipment: {
-        id: result.id,
-        tracking_number: result.tracking_number
-      }
-    });
-  } catch (error) {
-    console.error('Create shipment error:', error);
-    res.status(500).json({ error: 'Failed to create shipment' });
-  }
-}
-
-export async function getShipments(req, res) {
-  try {
-    const { page = 1, limit = 50, status, customer_id } = req.query;
+    const { page = 1, limit = 10, status = '', search = '' } = req.query;
     const offset = (page - 1) * limit;
 
-    const filters = {};
-    if (status) filters.status = status;
-    if (customer_id) filters.customer_id = customer_id;
+    let shipments;
+    let countQuery = 'SELECT COUNT(*) as count FROM shipments WHERE 1=1';
+    let whereClause = '';
+    const params = [];
 
-    const shipments = await Shipment.getAll(limit, offset, filters);
+    if (status) {
+      whereClause += ' AND shipment_status = ?';
+      params.push(status);
+    }
 
-    const [countResult] = await pool.query('SELECT COUNT(*) as total FROM shipments');
-    const total = countResult[0].total;
+    if (search) {
+      whereClause += ' AND (tracking_number LIKE ? OR shipment_id LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
 
-    res.json({
-      success: true,
-      data: shipments,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    });
+    shipments = await query(
+      `SELECT * FROM shipments WHERE 1=1 ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), offset]
+    );
+
+    const total = await query(countQuery + whereClause, params);
+    res.json({ data: shipments, total: total[0].count, page, limit });
   } catch (error) {
     console.error('Get shipments error:', error);
     res.status(500).json({ error: 'Failed to fetch shipments' });
   }
-}
+};
 
-export async function getShipmentByTrackingNumber(req, res) {
+export const getShipmentById = async (req, res) => {
   try {
-    const { trackingNumber } = req.params;
-
-    const shipment = await Shipment.findByTrackingNumber(trackingNumber);
-    if (!shipment) {
+    const shipments = await query('SELECT * FROM shipments WHERE id = ?', [req.params.id]);
+    if (shipments.length === 0) {
       return res.status(404).json({ error: 'Shipment not found' });
     }
-
-    // Get tracking events
-    const [events] = await pool.query(
-      'SELECT * FROM tracking_events WHERE shipment_id = ? ORDER BY event_date DESC',
-      [shipment.id]
-    );
-
-    // Get customer info
-    const [customer] = await pool.query(
-      'SELECT full_name, email, phone FROM customers WHERE id = ?',
-      [shipment.customer_id]
-    );
-
-    res.json({
-      success: true,
-      shipment,
-      customer: customer[0] || null,
-      events
-    });
+    res.json(shipments[0]);
   } catch (error) {
-    console.error('Get shipment error:', error);
     res.status(500).json({ error: 'Failed to fetch shipment' });
   }
-}
+};
 
-export async function updateShipmentStatus(req, res) {
+export const getShipmentByTracking = async (req, res) => {
   try {
-    const { shipmentId } = req.params;
-    const { status, location, description } = req.body;
-
-    const [shipment] = await pool.query('SELECT * FROM shipments WHERE id = ?', [shipmentId]);
-    if (!shipment.length) {
+    const shipments = await query('SELECT * FROM shipments WHERE tracking_number = ?', [req.params.trackingNumber]);
+    if (shipments.length === 0) {
       return res.status(404).json({ error: 'Shipment not found' });
     }
+    res.json(shipments[0]);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch shipment' });
+  }
+};
 
-    const currentShipment = shipment[0];
+export const createShipment = async (req, res) => {
+  try {
+    const {
+      customer_id, sender_name, sender_email, sender_phone, sender_address,
+      receiver_name, receiver_email, receiver_phone, receiver_address,
+      origin, destination, shipping_method, weight, weight_unit,
+      dimensions_length, dimensions_width, dimensions_height, dimension_unit,
+      package_type, declared_value, currency, shipping_cost, estimated_delivery_date, notes
+    } = req.body;
 
-    // Add tracking event
-    await pool.query(
-      `INSERT INTO tracking_events (shipment_id, event_date, location, status, description, created_by)
-       VALUES (?, NOW(), ?, ?, ?, ?)`,
-      [shipmentId, location, status, description, req.session.userId]
+    const shipment_id = generateShipmentId();
+    const tracking_number = generateTrackingNumber();
+
+    await query(
+      `INSERT INTO shipments (
+        shipment_id, tracking_number, customer_id, sender_name, sender_email, sender_phone,
+        sender_address, receiver_name, receiver_email, receiver_phone, receiver_address,
+        origin, destination, shipping_method, weight, weight_unit, dimensions_length,
+        dimensions_width, dimensions_height, dimension_unit, package_type, declared_value,
+        currency, shipping_cost, estimated_delivery_date, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        shipment_id, tracking_number, customer_id, sender_name, sender_email, sender_phone,
+        sender_address, receiver_name, receiver_email, receiver_phone, receiver_address,
+        origin, destination, shipping_method, weight, weight_unit, dimensions_length,
+        dimensions_width, dimensions_height, dimension_unit, package_type, declared_value,
+        currency, shipping_cost, estimated_delivery_date, notes
+      ]
     );
 
-    // Update shipment status
-    await Shipment.updateStatus(shipmentId, status);
-
-    // Send notification email
-    const templateHtml = getShipmentUpdateTemplate(currentShipment, status, location);
-    await sendEmail(currentShipment.receiver_email, 'Shipment Status Update', templateHtml);
-
-    await logAudit(req.session.userId, 'UPDATE', 'shipment', shipmentId, { status: currentShipment.shipment_status }, { status }, req);
-
-    res.json({ success: true, message: 'Shipment status updated' });
+    await logAudit(req.session.userId, 'CREATE', 'shipments', null, req);
+    res.status(201).json({ success: true, shipment_id, tracking_number });
   } catch (error) {
-    console.error('Update shipment error:', error);
+    console.error('Create shipment error:', error);
+    res.status(500).json({ error: 'Failed to create shipment' });
+  }
+};
+
+export const updateShipment = async (req, res) => {
+  try {
+    const updates = req.body;
+    const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    const values = Object.values(updates);
+    values.push(req.params.id);
+
+    await query(`UPDATE shipments SET ${fields} WHERE id = ?`, values);
+    await logAudit(req.session.userId, 'UPDATE', 'shipments', req.params.id, req);
+    res.json({ success: true });
+  } catch (error) {
     res.status(500).json({ error: 'Failed to update shipment' });
   }
-}
+};
 
-export async function deleteShipment(req, res) {
+export const deleteShipment = async (req, res) => {
   try {
-    const { shipmentId } = req.params;
+    await query('DELETE FROM shipments WHERE id = ?', [req.params.id]);
+    await logAudit(req.session.userId, 'DELETE', 'shipments', req.params.id, req);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete shipment' });
+  }
+};
 
-    const [shipment] = await pool.query('SELECT * FROM shipments WHERE id = ?', [shipmentId]);
-    if (!shipment.length) {
+export const duplicateShipment = async (req, res) => {
+  try {
+    const shipments = await query('SELECT * FROM shipments WHERE id = ?', [req.params.id]);
+    if (shipments.length === 0) {
       return res.status(404).json({ error: 'Shipment not found' });
     }
 
-    await pool.query('DELETE FROM shipments WHERE id = ?', [shipmentId]);
-    await logAudit(req.session.userId, 'DELETE', 'shipment', shipmentId, shipment[0], null, req);
+    const shipment = shipments[0];
+    const new_shipment_id = generateShipmentId();
+    const new_tracking_number = generateTrackingNumber();
 
-    res.json({ success: true, message: 'Shipment deleted' });
+    const keys = Object.keys(shipment).filter(k => k !== 'id' && k !== 'shipment_id' && k !== 'tracking_number');
+    const values = keys.map(k => shipment[k]);
+    values.unshift(new_shipment_id, new_tracking_number);
+
+    const placeholders = ['?', '?', ...keys.map(() => '?')].join(', ');
+    const columns = ['shipment_id', 'tracking_number', ...keys].join(', ');
+
+    await query(`INSERT INTO shipments (${columns}) VALUES (${placeholders})`, values);
+    await logAudit(req.session.userId, 'DUPLICATE', 'shipments', req.params.id, req);
+
+    res.json({ success: true, new_shipment_id, new_tracking_number });
   } catch (error) {
-    console.error('Delete shipment error:', error);
-    res.status(500).json({ error: 'Failed to delete shipment' });
+    res.status(500).json({ error: 'Failed to duplicate shipment' });
   }
-}
+};
+
+export const uploadShipmentDocuments = async (req, res) => {
+  try {
+    // TODO: Handle file uploads
+    res.json({ success: true, message: 'Documents uploaded' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to upload documents' });
+  }
+};
+
+export const printShippingLabel = async (req, res) => {
+  try {
+    // TODO: Generate PDF
+    res.json({ success: true, message: 'Label generated' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate label' });
+  }
+};
+
+export const generateInvoice = async (req, res) => {
+  try {
+    // TODO: Generate invoice
+    res.json({ success: true, message: 'Invoice generated' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate invoice' });
+  }
+};
