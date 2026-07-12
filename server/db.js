@@ -6,7 +6,7 @@ dotenv.config();
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'password',
+  password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'swiftchain_logistics',
   port: process.env.DB_PORT || 3306,
   waitForConnections: true,
@@ -14,16 +14,18 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-export default pool;
-
-export async function testConnection() {
+export const query = async (sql, values) => {
+  const connection = await pool.getConnection();
   try {
-    const connection = await pool.getConnection();
-    console.log('✅ Database connected successfully');
-    await connection.release();
-    return true;
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    return false;
+    const [results] = await connection.execute(sql, values);
+    return results;
+  } finally {
+    connection.release();
   }
-}
+};
+
+export const getConnection = async () => {
+  return await pool.getConnection();
+};
+
+export default pool;
